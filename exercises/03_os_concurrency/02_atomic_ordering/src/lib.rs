@@ -6,7 +6,7 @@
 //! - `Ordering::Relaxed`: No synchronization guarantees
 //! - `Ordering::Acquire`: Read operation, prevents subsequent reads/writes from being reordered before this operation
 //! - `Ordering::Release`: Write operation, prevents preceding reads/writes from being reordered after this operation
-//! - `Ordering::AcqRel`: Both Acquire and Release semantics
+//! - `Ordering::AcqRel2`: Both Acquire and Release semantics
 //! - `Ordering::SeqCst`: Sequentially consistent (global ordering)
 //!
 //! ## Release-Acquire Pairing
@@ -40,7 +40,9 @@ impl FlagChannel {
     pub fn produce(&self, value: u32) {
         // TODO: Store data (choose appropriate Ordering)
         // TODO: Set ready = true (choose appropriate Ordering so data writes complete before this)
-        todo!()
+        self.data.store(value, Ordering::Relaxed);
+        self.ready.store(true, Ordering::Release);
+
     }
 
     /// Consumer: spin-wait for ready flag, then read data.
@@ -51,7 +53,11 @@ impl FlagChannel {
     pub fn consume(&self) -> u32 {
         // TODO: Spin-wait for ready to become true (choose appropriate Ordering)
         // TODO: Read data (choose appropriate Ordering)
-        todo!()
+        while self.ready.load(Ordering::Acquire) == false{
+
+        }
+        self.data.load(Ordering::SeqCst)
+
     }
 
     /// Reset channel state
@@ -83,13 +89,28 @@ impl OnceCell {
     pub fn init(&self, val: u32) -> bool {
         // TODO: Use compare_exchange to ensure initialization only once
         // Store value on success
-        todo!()
+        let a = self.initialized.compare_exchange(false,true ,Ordering::SeqCst , Ordering::SeqCst);
+        match a {
+            Ok(_) => {
+                self.value.store(val, Ordering::SeqCst);
+                return true;
+            },
+            Err(_) => {
+                return false;
+            },
+        }
     }
 
     /// Get value. Returns Some if initialized, otherwise None.
     pub fn get(&self) -> Option<u32> {
         // TODO: Check initialized flag, then read value
-        todo!()
+        let a = self.initialized.load(Ordering::SeqCst);
+        if a == false{
+            return None;
+        }else {
+            let b = self.value.load(Ordering::SeqCst);
+            return Some(b);
+        }
     }
 }
 
