@@ -27,7 +27,12 @@
 pub unsafe extern "C" fn my_memcpy(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
     // TODO: Implement memcpy
     // Hint: read bytes from src one by one and write to dst
-    todo!()
+    unsafe {
+        for i in 0..n{
+            *dst.add(i) = *src.add(i);
+        }
+        dst
+    }
 }
 
 /// Set `n` bytes starting at `dst` to the value `c`.
@@ -39,11 +44,16 @@ pub unsafe extern "C" fn my_memcpy(dst: *mut u8, src: *const u8, n: usize) -> *m
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn my_memset(dst: *mut u8, c: u8, n: usize) -> *mut u8 {
     // TODO: Implement memset
-    todo!()
+     unsafe {
+        for i in 0..n{
+            *dst.add(i) = c;
+        }
+        dst
+    }
 }
 
-/// Copy `n` bytes from `src` to `dst`, correctly handling overlapping memory.
 ///
+/// Copy `n` bytes from `src` to `dst`, correctly handling overlapping memory.
 /// Returns `dst`.
 ///
 /// # Safety
@@ -52,7 +62,18 @@ pub unsafe extern "C" fn my_memset(dst: *mut u8, c: u8, n: usize) -> *mut u8 {
 pub unsafe extern "C" fn my_memmove(dst: *mut u8, src: *const u8, n: usize) -> *mut u8 {
     // TODO: Implement memmove
     // Hint: when dst > src and regions overlap, copy backwards (from end to start)
-    todo!()
+    unsafe {
+        if dst as usize > src as usize{
+            for i in (0..n).rev(){
+                *dst.add(i) = *src.add(i);
+            }
+        }else {
+            for i in (0..n){
+                *dst.add(i) = *src.add(i);
+            }
+        }
+        dst
+}
 }
 
 /// Return the length of a null-terminated byte string, excluding the trailing null.
@@ -62,7 +83,14 @@ pub unsafe extern "C" fn my_memmove(dst: *mut u8, src: *const u8, n: usize) -> *
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn my_strlen(s: *const u8) -> usize {
     // TODO: Implement strlen
-    todo!()
+    let mut a = 0;
+    loop{
+        if *s.add(a) == b'\0'{
+            break;
+        }
+        a = a + 1;
+    }
+    a
 }
 
 /// Compare two null-terminated byte strings.
@@ -77,7 +105,29 @@ pub unsafe extern "C" fn my_strlen(s: *const u8) -> usize {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn my_strcmp(s1: *const u8, s2: *const u8) -> i32 {
     // TODO: Implement strcmp
-    todo!()
+    let len1 = my_strlen(s1);
+    let len2 = my_strlen(s2);
+    let mut a = 0;
+    unsafe {
+    if len1 >= len2 {
+        for i in 0..len2{
+            if *s1.add(i) > *s2.add(i){
+                a = 1;
+            }else if  *s1.add(i) < *s2.add(i){
+                a = -1;
+            }
+        }
+    }else {
+        for i in 0..len1{
+            if *s1.add(i) > *s2.add(i){
+                a = 1;
+            }else if  *s1.add(i) < *s2.add(i){
+                a = -1;
+            }
+        }
+    }
+}
+    a
 }
 
 // ============================================================
