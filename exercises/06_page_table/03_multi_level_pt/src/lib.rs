@@ -21,6 +21,8 @@
 
 use std::collections::HashMap;
 
+use crate::TranslateResult::PageFault;
+
 /// 页大小 4KB
 pub const PAGE_SIZE: usize = 4096;
 /// 每级页表有 512 个条目 (2^9)
@@ -103,7 +105,7 @@ impl Sv39PageTable {
     /// 提示：右移 (12 + level * 9) 位，然后与 0x1FF 做掩码。
     pub fn extract_vpn(va: u64, level: usize) -> usize {
         // TODO: 从虚拟地址中提取指定级别的 VPN 索引
-        todo!()
+        (va >> (12 + level * 9) & 0x1FF) as usize 
     }
 
     /// 建立从虚拟页到物理页的映射（4KB 页）。
@@ -119,7 +121,28 @@ impl Sv39PageTable {
         // 对于中间层级（level 2 和 level 1），如果对应 VPN 的页表项（PTE）无效（PTE_V == 0），
         // 则需要分配一个新的页表节点（使用 alloc_node），并将新节点的 PPN 写入当前 PTE（仅设置 PTE_V 标志）。
         // 最后在 level 0 的 PTE 中写入目标物理页号（pa >> 12）和 flags。
-        todo!()
+        let lev_0 = Sv39PageTable::extract_vpn(va, 0);
+        let lev_1 = Sv39PageTable::extract_vpn(va, 1);
+        let lev_2 = Sv39PageTable::extract_vpn(va, 2);
+        let root_1 = self.nodes.get(&self.root_ppn).unwrap().entries[lev_2];
+        let a = if root_1 & PTE_V == 0{
+            let new = self.alloc_node();
+            self.nodes.get_mut(&self.root_ppn).unwrap().entries[lev_2] = (new << PPN_SHIFT) | PTE_V;
+            new
+        }else{
+            root_1 >> PPN_SHIFT
+        };
+        let root_2 = self.nodes.get(&a).unwrap().entries[lev_1];
+        let b = if root_2 & PTE_V == 0{
+            let new = self.alloc_node();
+            self.nodes.get_mut(&a).unwrap().entries[lev_1] = (new << PPN_SHIFT) | PTE_V;
+            new
+        }else{
+            root_2 >> PPN_SHIFT
+        };
+        let c = self.nodes.get_mut(&b).unwrap();
+        c.entries[lev_0] = (pa >> 12) << PPN_SHIFT | flags;
+
     }
 
     /// 遍历三级页表，将虚拟地址翻译为物理地址。
@@ -141,7 +164,33 @@ impl Sv39PageTable {
         // 如果 PTE 是叶节点（即 R、W、X 标志位中有至少一个被置位），则可以直接使用该 PTE 中的物理页号（PPN）计算最终的物理地址。
         // 否则，该 PTE 指向下一级页表节点，继续遍历下一级。
         // 遍历到 level 0 时，PTE 必须是叶节点。
-        todo!()
+        let lev_0 = Sv39PageTable::extract_vpn(va, 0);
+        let lev_1 = Sv39PageTable::extract_vpn(va, 1);
+        let lev_2 = Sv39PageTable::extract_vpn(va, 2);
+        let root_1 = self.nodes.get(&self.root_ppn).unwrap().entries[lev_2];
+        let p1 = root_1 >> PPN_SHIFT;
+        if root_1 & PTE_V == 0{
+            return TranslateResult::PageFault;
+        }else if (root_1 & PTE_R != 0 )|(root_1 & PTE_W != 0 )|(root_1 & PTE_X != 0){
+            return  TranslateResult::Ok((root_1 >> PPN_SHIFT) * PAGE_SIZE as u64 + (va & (1u64 << 30) - 1));
+        }else{
+                let root_2 = self.nodes.get(&p1).unwrap().entries[lev_1];
+                let p2 = root_2 >> PPN_SHIFT;
+                if root_2 & PTE_V == 0{
+                    return TranslateResult::PageFault;
+                }else if (root_2 & PTE_R != 0 )|(root_2 & PTE_W != 0 )|(root_2 & PTE_X != 0){
+                    return  TranslateResult::Ok((root_2 >> PPN_SHIFT) * PAGE_SIZE as u64 + (va & (1u64 << 21) - 1));
+                }else{
+                    let r3 = self.nodes.get(&p2).unwrap().entries[lev_0];
+                    if r3 & PTE_V == 0{
+                        return TranslateResult::PageFault;
+                    }else if (r3 & PTE_R != 0 )|(r3 & PTE_W != 0 )|(r3 & PTE_X != 0){
+                        return  TranslateResult::Ok((r3 >> PPN_SHIFT) * PAGE_SIZE as u64 + (va & (1u64 << 12) - 1));
+                    }else{
+                        return  TranslateResult::PageFault;
+                }
+            }
+        }
     }
 
     /// 建立大页映射（2MB superpage，在 level 1 设叶子 PTE）。
@@ -159,8 +208,25 @@ impl Sv39PageTable {
         // 提示：大页映射与普通页映射类似，但只需要遍历到 level 1。
         // 你需要在 level 2 找到或创建中间页表节点，然后在 level 1 写入叶子 PTE。
         // 注意大页的物理页号计算方式与普通页相同（pa >> 12），
-        // 但翻译时 offset 包含虚拟地址的低 21 位（VPN[0] 部分 + 12 位页内偏移）。
-        todo!()
+        // 但翻译时 offset 包含虚拟地址的低 21 位（VPN[0] 部分 + 12 位页内偏移.
+
+      let lev_1 = Sv39PageTable::extract_vpn(va, 1);
+      let lev_2 = Sv39PageTable::extract_vpn(va, 2);
+
+      let root_pte = self.nodes.get(&self.root_ppn).unwrap().entries[lev_2];
+
+      let level1_ppn = if root_pte & PTE_V == 0 {
+          let new_ppn = self.alloc_node();
+          self.nodes.get_mut(&self.root_ppn).unwrap().entries[lev_2] =
+              (new_ppn << PPN_SHIFT) | PTE_V;
+          new_ppn
+      } else {
+          root_pte >> PPN_SHIFT
+      };
+
+      let ppn = pa >> 12;
+      let level1_node = self.nodes.get_mut(&level1_ppn).unwrap();
+      level1_node.entries[lev_1] = (ppn << PPN_SHIFT) | flags;
     }
 }
 
